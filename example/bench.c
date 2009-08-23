@@ -158,6 +158,7 @@ run_once(void)
 	      picoev_del(pe_loop, cp[0]);
 	    }
 	    picoev_add(pe_loop, cp[0], PICOEV_READ, 10, cb_picoev, (void*)i);
+	    drand48();
 #else
 	    abort();
 #endif
