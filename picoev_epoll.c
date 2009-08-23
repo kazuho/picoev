@@ -15,15 +15,16 @@ int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
   picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
   int old_events = picoev.fds[fd].events;
   
+  assert(PICOEV_FD_BELONGS_TO_LOOP(&loop->loop, fd));
+  
 #define CTL(m, e)			      \
   if (epoll_ctl(loop->epfd, m, fd, e) != 0) { \
     return -1; \
   }
   
-  if (old_events == events) {
-    return 0;
-  }
-  if (events != 0) {
+  if (events == 0) {
+    CTL(EPOLL_CTL_DEL, 0);
+  } else {
     struct epoll_event ev;
     ev.events = ((events & PICOEV_READ) != 0 ? EPOLLIN : 0)
       | ((events & PICOEV_WRITE) != 0 ? EPOLLOUT : 0);
@@ -33,8 +34,6 @@ int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
     } else {
       CTL(EPOLL_CTL_ADD, &ev);
     }
-  } else {
-    CTL(EPOLL_CTL_DEL, 0);
   }
   
 #undef CTL

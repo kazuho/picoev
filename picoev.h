@@ -164,7 +164,7 @@ extern "C" {
     target->loop_id = loop->loop_id;
     target->events = 0;
     target->timeout_idx = -1;
-    if (picoev_update_events_internal(loop, fd, events) != 0) {
+    if (events != 0 && picoev_update_events_internal(loop, fd, events) != 0) {
       target->loop_id = 0;
       return -1;
     }
@@ -178,10 +178,9 @@ extern "C" {
     picoev_fd* target;
     assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
     target = picoev.fds + fd;
-    if (target->events != 0) {
-      if (picoev_update_events_internal(loop, fd, 0) != 0) {
-	return -1;
-      }
+    if (target->events != 0
+	&& picoev_update_events_internal(loop, fd, 0) != 0) {
+      return -1;
     }
     picoev_set_timeout(loop, fd, 0);
     target->loop_id = 0;
@@ -199,10 +198,9 @@ extern "C" {
   PICOEV_INLINE
   int picoev_set_events(picoev_loop* loop, int fd, int events) {
     assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
-    if (picoev.fds[fd].events != events) {
-      if (picoev_update_events_internal(loop, fd, events) != 0) {
-	return -1;
-      }
+    if (picoev.fds[fd].events != events
+	&& picoev_update_events_internal(loop, fd, events) != 0) {
+      return -1;
     }
     return 0;
   }
