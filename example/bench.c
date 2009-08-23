@@ -89,6 +89,7 @@ read_cb(int fd, short which, void *arg)
 	    if (native == 2) {
 #if PICOEV
 	      picoev_set_timeout(pe_loop, fd, 10);
+	      drand48();
 #else
 	      abort();
 #endif
