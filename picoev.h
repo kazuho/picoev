@@ -16,7 +16,6 @@ extern "C" {
 
 #define PICOEV_IS_INITED (picoev.max_fd != 0)  
 #define PICOEV_IS_INITED_AND_FD_IN_RANGE(fd) ((fd) < picoev.max_fd)
-#define PICOEV_NO_MEMORY(p) ((p) != NULL)
 #define PICOEV_TOO_MANY_LOOPS (picoev.num_loops != 0) /* use after ++ */
 #define PICOEV_FD_BELONGS_TO_LOOP(loop, fd) \
   ((loop)->loop_id == picoev.fds[fd].loop_id)
@@ -78,11 +77,12 @@ extern "C" {
   
   /* initializes picoev */
   PICOEV_INLINE
-  void picoev_init(int max_fd) {
+  int picoev_init(int max_fd) {
     assert(! PICOEV_IS_INITED);
     assert(max_fd > 0);
-    picoev.fds = (picoev_fd*)valloc(sizeof(picoev_fd) * max_fd);
-    assert(PICOEV_NO_MEMORY(picoev.fds));
+    if ((picoev.fds = (picoev_fd*)valloc(sizeof(picoev_fd) * max_fd)) == NULL) {
+      return -1;
+    }
     picoev.max_fd = max_fd;
     picoev.num_loops = 0;
     picoev.timeout_vec_size
@@ -90,6 +90,7 @@ extern "C" {
     picoev.timeout_vec_of_vec_size
       = PICOEV_RND_UP(picoev.timeout_vec_size, PICOEV_SIMD_BITS)
       / PICOEV_LONG_BITS;
+    return 0;
   }
   
   /* deinitializes picoev */
