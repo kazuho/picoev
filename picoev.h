@@ -27,6 +27,7 @@ extern "C" {
   ((loop)->timeout.vec_of_vec + (idx) * picoev.timeout_vec_of_vec_size)
 #define PICOEV_RND_UP(v, d) (((v) + (d) - 1) / (d) * (d))
 
+#define PICOEV_SIMD_BITS 128
 #define PICOEV_TIMEOUT_VEC_SIZE 128
 #define PICOEV_LONG_BITS (sizeof(long) * 8)
 
@@ -34,7 +35,7 @@ extern "C" {
 #define PICOEV_WRITE 2
 #define PICOEV_TIMEOUT 4
   
-  typedef unsigned picoev_loop_id_t;
+  typedef unsigned int picoev_loop_id_t;
   
   typedef struct picoev_loop_st picoev_loop;
   
@@ -43,6 +44,7 @@ extern "C" {
   
   typedef struct picoev_fd_st {
     /* use accessors! */
+    /* should keep the size to 16 bytes on 32-bit arch, 32 bytes on 64-bit */
     picoev_handler* callback;
     void* cb_arg;
     picoev_loop_id_t loop_id;
@@ -79,14 +81,15 @@ extern "C" {
   void picoev_init(int max_fd) {
     assert(! PICOEV_IS_INITED);
     assert(max_fd > 0);
-    picoev.fds = (picoev_fd*)malloc(sizeof(picoev_fd) * max_fd);
+    picoev.fds = (picoev_fd*)valloc(sizeof(picoev_fd) * max_fd);
     assert(PICOEV_NO_MEMORY(picoev.fds));
     picoev.max_fd = max_fd;
     picoev.num_loops = 0;
     picoev.timeout_vec_size
-      = PICOEV_RND_UP(picoev.max_fd, 8 * 16) / PICOEV_LONG_BITS;
+      = PICOEV_RND_UP(picoev.max_fd, PICOEV_SIMD_BITS) / PICOEV_LONG_BITS;
     picoev.timeout_vec_of_vec_size
-      = PICOEV_RND_UP(picoev.timeout_vec_size, 8 * 16) / PICOEV_LONG_BITS;
+      = PICOEV_RND_UP(picoev.timeout_vec_size, PICOEV_SIMD_BITS)
+      / PICOEV_LONG_BITS;
   }
   
   /* deinitializes picoev */
@@ -198,11 +201,12 @@ extern "C" {
   void picoev_init_loop_internal(picoev_loop* loop, int max_timeout) {
     loop->loop_id = ++picoev.num_loops;
     assert(PICOEV_TOO_MANY_LOOPS);
-    loop->timeout.vec = (long*)malloc(picoev.timeout_vec_size * sizeof(long)
+    /* TODO uses valloc to align memory, for future optimisation using SIMD */
+    loop->timeout.vec = (long*)valloc(picoev.timeout_vec_size * sizeof(long)
 		      * PICOEV_TIMEOUT_VEC_SIZE);
     assert(PICOEV_NO_MEMORY(loop->timeout.vec));
     loop->timeout.vec_of_vec
-      = (long*)malloc(picoev.timeout_vec_of_vec_size * sizeof(long)
+      = (long*)valloc(picoev.timeout_vec_of_vec_size * sizeof(long)
 		      * PICOEV_TIMEOUT_VEC_SIZE);
     assert(PICOEV_NO_MEMORY(loop->timeout.vec_of_vec));
     loop->timeout.base_idx = 0;
