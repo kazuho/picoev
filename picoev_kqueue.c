@@ -116,4 +116,3 @@ int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
   }
   return 0;
 }
-  
