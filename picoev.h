@@ -29,7 +29,7 @@ extern "C" {
 
 #define PICOEV_SIMD_BITS 128
 #define PICOEV_TIMEOUT_VEC_SIZE 128
-#define PICOEV_LONG_BITS (sizeof(long) * 8)
+#define PICOEV_SHORT_BITS (sizeof(short) * 8)
 
 #define PICOEV_READ 1
 #define PICOEV_WRITE 2
@@ -56,8 +56,8 @@ extern "C" {
     /* read only */
     picoev_loop_id_t loop_id;
     struct {
-      long* vec;
-      long* vec_of_vec;
+      short* vec;
+      short* vec_of_vec;
       size_t base_idx;
       time_t base_time;
       int resolution;
@@ -87,10 +87,10 @@ extern "C" {
     picoev.max_fd = max_fd;
     picoev.num_loops = 0;
     picoev.timeout_vec_size
-      = PICOEV_RND_UP(picoev.max_fd, PICOEV_SIMD_BITS) / PICOEV_LONG_BITS;
+      = PICOEV_RND_UP(picoev.max_fd, PICOEV_SIMD_BITS) / PICOEV_SHORT_BITS;
     picoev.timeout_vec_of_vec_size
       = PICOEV_RND_UP(picoev.timeout_vec_size, PICOEV_SIMD_BITS)
-      / PICOEV_LONG_BITS;
+      / PICOEV_SHORT_BITS;
     return 0;
   }
   
@@ -120,19 +120,19 @@ extern "C" {
   PICOEV_INLINE
   void picoev_set_timeout(picoev_loop* loop, int fd, int secs) {
     picoev_fd* target;
-    long* vec, * vec_of_vec;
-    size_t vi = fd / PICOEV_LONG_BITS, delta;
+    short* vec, * vec_of_vec;
+    size_t vi = fd / PICOEV_SHORT_BITS, delta;
     assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
     assert(PICOEV_FD_BELONGS_TO_LOOP(loop, fd));
     target = picoev.fds + fd;
     /* clear timeout */
     if (target->timeout_idx != -1) {
       vec = PICOEV_TIMEOUT_VEC_OF(loop, target->timeout_idx);
-      if ((vec[vi] &= ~((unsigned long)LONG_MIN >> (fd % PICOEV_LONG_BITS)))
+      if ((vec[vi] &= ~((unsigned short)SHRT_MIN >> (fd % PICOEV_SHORT_BITS)))
 	  == 0) {
 	vec_of_vec = PICOEV_TIMEOUT_VEC_OF_VEC_OF(loop, target->timeout_idx);
-	vec_of_vec[vi / PICOEV_LONG_BITS]
-	  &= ~((unsigned long)LONG_MIN >> (vi % PICOEV_LONG_BITS));
+	vec_of_vec[vi / PICOEV_SHORT_BITS]
+	  &= ~((unsigned short)SHRT_MIN >> (vi % PICOEV_SHORT_BITS));
       }
       target->timeout_idx = -1;
     }
@@ -145,10 +145,10 @@ extern "C" {
       target->timeout_idx =
 	(loop->timeout.base_idx + delta) % PICOEV_TIMEOUT_VEC_SIZE;
       vec = PICOEV_TIMEOUT_VEC_OF(loop, target->timeout_idx);
-      vec[vi] |= (unsigned long)LONG_MIN >> (fd % PICOEV_LONG_BITS);
+      vec[vi] |= (unsigned short)SHRT_MIN >> (fd % PICOEV_SHORT_BITS);
       vec_of_vec = PICOEV_TIMEOUT_VEC_OF_VEC_OF(loop, target->timeout_idx);
-      vec_of_vec[vi / PICOEV_LONG_BITS]
-	|= (unsigned long)LONG_MIN >> (vi % PICOEV_LONG_BITS);
+      vec_of_vec[vi / PICOEV_SHORT_BITS]
+	|= (unsigned short)SHRT_MIN >> (vi % PICOEV_SHORT_BITS);
     }
   }
   
@@ -222,9 +222,9 @@ extern "C" {
     assert(PICOEV_TOO_MANY_LOOPS);
     /* TODO uses valloc to align memory, for future optimisation using SIMD */
     if ((loop->timeout.vec
-	 = (long*)valloc((picoev.timeout_vec_size
+	 = (short*)valloc((picoev.timeout_vec_size
 			  + picoev.timeout_vec_of_vec_size)
-			 * sizeof(long) * PICOEV_TIMEOUT_VEC_SIZE))
+			 * sizeof(short) * PICOEV_TIMEOUT_VEC_SIZE))
 	== NULL) {
       --picoev.num_loops;
       return -1;
@@ -255,17 +255,17 @@ extern "C" {
 	   = (loop->timeout.base_idx + 1) % PICOEV_TIMEOUT_VEC_SIZE,
 	   loop->timeout.base_time += loop->timeout.resolution) {
       /* TODO use SIMD instructions */
-      long* vec = PICOEV_TIMEOUT_VEC_OF(loop, loop->timeout.base_idx);
-      long* vec_of_vec
+      short* vec = PICOEV_TIMEOUT_VEC_OF(loop, loop->timeout.base_idx);
+      short* vec_of_vec
 	= PICOEV_TIMEOUT_VEC_OF_VEC_OF(loop, loop->timeout.base_idx);
       for (i = 0; i < picoev.timeout_vec_of_vec_size; ++i) {
-	long vv = vec_of_vec[i];
+	short vv = vec_of_vec[i];
 	if (vv != 0) {
-	  for (j = i * PICOEV_LONG_BITS; vv != 0; j++, vv <<= 1) {
+	  for (j = i * PICOEV_SHORT_BITS; vv != 0; j++, vv <<= 1) {
 	    if (vv < 0) {
-	      long v = vec[j];
+	      short v = vec[j];
 	      assert(v != 0);
-	      for (k = j * PICOEV_LONG_BITS; v != 0; k++, v <<= 1) {
+	      for (k = j * PICOEV_SHORT_BITS; v != 0; k++, v <<= 1) {
 		if (v < 0) {
 		  picoev_fd* fd = picoev.fds + k;
 		  assert(fd->loop_id == loop->loop_id);
