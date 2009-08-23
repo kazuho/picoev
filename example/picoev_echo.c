@@ -10,7 +10,7 @@
 #define HOST 0 /* 0x7f000001 for localhost */
 #define PORT 23456
 #define MAX_FDS 1024
-#define TIMEOUT_SECS 1
+#define TIMEOUT_SECS 10
 
 static void close_conn(picoev_loop* loop, int fd)
 {

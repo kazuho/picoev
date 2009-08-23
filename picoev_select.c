@@ -8,6 +8,24 @@ void picoev_update_events_internal(picoev_loop* loop, int fd, int events)
   picoev.fds[fd].events = events;
 }
 
+picoev_loop* picoev_create_loop(int max_timeout)
+{
+  picoev_loop* loop;
+  
+  assert(PICOEV_IS_INITED);
+  loop = (picoev_loop*)malloc(sizeof(picoev_loop));
+  assert(PICOEV_NO_MEMORY(loop));
+  picoev_init_loop_internal(loop, max_timeout);
+  
+  return loop;
+}
+
+void picoev_destroy_loop(picoev_loop* loop)
+{
+  picoev_deinit_loop_internal(loop);
+  free(loop);
+}
+
 void picoev_loop_once(picoev_loop* loop, int max_wait)
 {
   fd_set readfds, writefds, errorfds;

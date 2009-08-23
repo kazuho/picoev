@@ -186,12 +186,11 @@ extern "C" {
   }
   
   /* creates a new event loop */
+  picoev_loop* picoev_create_loop(int max_timeout);
+  
+  /* internal function */
   PICOEV_INLINE
-  picoev_loop* picoev_create_loop(int max_timeout) {
-    picoev_loop* loop;
-    assert(PICOEV_IS_INITED);
-    loop = (picoev_loop*)malloc(sizeof(picoev_loop));
-    assert(PICOEV_NO_MEMORY(loop));
+  void picoev_init_loop_internal(picoev_loop* loop, int max_timeout) {
     loop->loop_id = ++picoev.num_loops;
     assert(PICOEV_TOO_MANY_LOOPS);
     loop->timeout.vec = (long*)malloc(picoev.timeout_vec_size * sizeof(long)
@@ -206,15 +205,16 @@ extern "C" {
     loop->timeout.resolution
       = PICOEV_RND_UP(max_timeout, PICOEV_TIMEOUT_VEC_SIZE)
       / PICOEV_TIMEOUT_VEC_SIZE;
-    return loop;
   }
   
   /* destroys a event loop */
+  void picoev_destroy_loop(picoev_loop* loop);
+  
+  /* internal function */
   PICOEV_INLINE
-  void picoev_destroy_loop(picoev_loop* loop) {
+  void picoev_deinit_loop_internal(picoev_loop* loop) {
     free(loop->timeout.vec_of_vec);
     free(loop->timeout.vec);
-    free(loop);
   }
   
   /* loop once */
