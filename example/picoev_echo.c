@@ -84,7 +84,7 @@ int main(void)
   /* create loop */
   loop = picoev_create_loop(60);
   /* add listen socket */
-  picoev_add(loop, listen_sock, PICOEV_ACCEPT, 0, accept_callback, NULL);
+  picoev_add(loop, listen_sock, PICOEV_READ, 0, accept_callback, NULL);
   /* loop */
   while (1) {
     picoev_loop_once(loop, 0);

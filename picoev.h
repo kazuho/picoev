@@ -32,8 +32,7 @@ extern "C" {
 
 #define PICOEV_READ 1
 #define PICOEV_WRITE 2
-#define PICOEV_ACCEPT 4
-#define PICOEV_TIMEOUT 8
+#define PICOEV_TIMEOUT 4
   
   typedef unsigned picoev_loop_id_t;
   
@@ -100,8 +99,17 @@ extern "C" {
     picoev.num_loops = 0;
   }
   
-  /* internal: updates events to be watched */
+  /* creates a new event loop (defined by each backend) */
+  picoev_loop* picoev_create_loop(int max_timeout);
+  
+  /* destroys a loop (defined by each backend) */
+  void picoev_destroy_loop(picoev_loop* loop);
+  
+  /* internal: updates events to be watched (defined by each backend) */
   void picoev_update_events_internal(picoev_loop* loop, int fd, int events);
+  
+  /* internal: poll once and call the handlers (defined by each backend) */
+  void picoev_poll_once_internal(picoev_loop* loop, int max_wait);
   
   /* updates timeout */
   PICOEV_INLINE
@@ -185,9 +193,6 @@ extern "C" {
     }
   }
   
-  /* creates a new event loop */
-  picoev_loop* picoev_create_loop(int max_timeout);
-  
   /* internal function */
   PICOEV_INLINE
   void picoev_init_loop_internal(picoev_loop* loop, int max_timeout) {
@@ -207,9 +212,6 @@ extern "C" {
       / PICOEV_TIMEOUT_VEC_SIZE;
   }
   
-  /* destroys a event loop */
-  void picoev_destroy_loop(picoev_loop* loop);
-  
   /* internal function */
   PICOEV_INLINE
   void picoev_deinit_loop_internal(picoev_loop* loop) {
@@ -217,10 +219,7 @@ extern "C" {
     free(loop->timeout.vec);
   }
   
-  /* loop once */
-  void picoev_loop_once(picoev_loop* loop, int max_wait);
-  
-  /* handles timeout (internal) */
+  /* internal function */
   PICOEV_INLINE
   void picoev_handle_timeout_internal(picoev_loop* loop) {
     size_t i, j, k;
@@ -255,6 +254,14 @@ extern "C" {
 	}
       }
     }
+  }
+  
+  /* loop once */
+  PICOEV_INLINE
+  void picoev_loop_once(picoev_loop* loop, int max_wait) {
+    loop->now = time(NULL);
+    picoev_poll_once_internal(loop, max_wait);
+    picoev_handle_timeout_internal(loop);
   }
   
 #undef PICOEV_INLINE
