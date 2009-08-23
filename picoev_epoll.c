@@ -10,17 +10,18 @@ typedef struct picoev_loop_epoll_st {
 
 picoev_globals picoev;
 
-void picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
+int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
 {
   picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
-  int old_events = picoev.fds[fd].events, r;
+  int old_events = picoev.fds[fd].events;
   
-#define CTL(m, e)			 \
-  r = epoll_ctl(loop->epfd, m, fd, e); \
-  assert(r == 0)
+#define CTL(m, e)			      \
+  if (epoll_ctl(loop->epfd, m, fd, e) != 0) { \
+    return -1; \
+  }
   
   if (old_events == events) {
-    return;
+    return 0;
   }
   if (events != 0) {
     struct epoll_event ev;
@@ -39,6 +40,7 @@ void picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
 #undef CTL
   
   picoev.fds[fd].events = events;
+  return 0;
 }
 
 picoev_loop* picoev_create_loop(int max_timeout)
@@ -47,27 +49,37 @@ picoev_loop* picoev_create_loop(int max_timeout)
   
   /* init parent */
   assert(PICOEV_IS_INITED);
-  loop = (picoev_loop_epoll*)malloc(sizeof(picoev_loop_epoll));
-  assert(PICOEV_NO_MEMORY(loop));
-  picoev_init_loop_internal(&loop->loop, max_timeout);
+  if ((loop = (picoev_loop_epoll*)malloc(sizeof(picoev_loop_epoll))) == NULL) {
+    return NULL;
+  }
+  if (picoev_init_loop_internal(&loop->loop, max_timeout) != 0) {
+    free(loop);
+    return NULL;
+  }
   
-  /* epoll init */
-  loop->epfd = epoll_create(picoev.max_fd);
-  assert(loop->epfd != -1);
+  /* init epoll */
+  if ((loop->epfd = epoll_create(picoev.max_fd)) == -1) {
+    picoev_deinit_loop_internal(&loop->loop);
+    free(loop);
+    return NULL;
+  }
   
   return &loop->loop;
 }
 
-void picoev_destroy_loop(picoev_loop* _loop)
+int picoev_destroy_loop(picoev_loop* _loop)
 {
   picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
   
-  close(loop->epfd);
+  if (close(loop->epfd) != 0) {
+    return -1;
+  }
   picoev_deinit_loop_internal(&loop->loop);
   free(loop);
+  return 0;
 }
 
-void picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
+int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
 {
   picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
   int i, nevents, timeout_secs;
@@ -79,6 +91,9 @@ void picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
   nevents = epoll_wait(loop->epfd, loop->events,
 		       sizeof(loop->events) / sizeof(loop->events[0]),
 		       timeout_secs * 1000);
+  if (nevents == -1) {
+    return -1;
+  }
   for (i = 0; i < nevents; ++i) {
     struct epoll_event* event = loop->events + i;
     picoev_fd* target = picoev.fds + event->data.fd;
@@ -90,4 +105,5 @@ void picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
 			  target->cb_arg);
     }
   }
+  return 0;
 }

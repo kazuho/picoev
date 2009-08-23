@@ -3,9 +3,10 @@
 
 picoev_globals picoev;
 
-void picoev_update_events_internal(picoev_loop* loop, int fd, int events)
+int picoev_update_events_internal(picoev_loop* loop, int fd, int events)
 {
   picoev.fds[fd].events = events;
+  return 0;
 }
 
 picoev_loop* picoev_create_loop(int max_timeout)
@@ -13,24 +14,29 @@ picoev_loop* picoev_create_loop(int max_timeout)
   picoev_loop* loop;
   
   assert(PICOEV_IS_INITED);
-  loop = (picoev_loop*)malloc(sizeof(picoev_loop));
-  assert(PICOEV_NO_MEMORY(loop));
-  picoev_init_loop_internal(loop, max_timeout);
+  if ((loop = (picoev_loop*)malloc(sizeof(picoev_loop))) == NULL) {
+    return NULL;
+  }
+  if (picoev_init_loop_internal(loop, max_timeout) != 0) {
+    free(loop);
+    return NULL;
+  }
   
   return loop;
 }
 
-void picoev_destroy_loop(picoev_loop* loop)
+int picoev_destroy_loop(picoev_loop* loop)
 {
   picoev_deinit_loop_internal(loop);
   free(loop);
+  return 0;
 }
 
-void picoev_poll_once_internal(picoev_loop* loop, int max_wait)
+int picoev_poll_once_internal(picoev_loop* loop, int max_wait)
 {
   fd_set readfds, writefds, errorfds;
   struct timeval tv;
-  int i, maxfd = 0;
+  int i, r, maxfd = 0;
   
   /* setup */
   FD_ZERO(&readfds);
@@ -60,7 +66,10 @@ void picoev_poll_once_internal(picoev_loop* loop, int max_wait)
     tv.tv_sec = max_wait;
   }
   tv.tv_usec = 0;
-  if (select(maxfd + 1, &readfds, &writefds, &errorfds, &tv) > 0) {
+  r = select(maxfd + 1, &readfds, &writefds, &errorfds, &tv);
+  if (r == -1) {
+    return -1;
+  } else if (r > 0) {
     for (i = 0; i < picoev.max_fd; ++i) {
       picoev_fd* target = picoev.fds + i;
       if (target->loop_id == loop->loop_id) {
@@ -72,4 +81,6 @@ void picoev_poll_once_internal(picoev_loop* loop, int max_wait)
       }
     }
   }
+  
+  return 0;
 }

@@ -106,13 +106,13 @@ extern "C" {
   picoev_loop* picoev_create_loop(int max_timeout);
   
   /* destroys a loop (defined by each backend) */
-  void picoev_destroy_loop(picoev_loop* loop);
+  int picoev_destroy_loop(picoev_loop* loop);
   
   /* internal: updates events to be watched (defined by each backend) */
-  void picoev_update_events_internal(picoev_loop* loop, int fd, int events);
+  int picoev_update_events_internal(picoev_loop* loop, int fd, int events);
   
   /* internal: poll once and call the handlers (defined by each backend) */
-  void picoev_poll_once_internal(picoev_loop* loop, int max_wait);
+  int picoev_poll_once_internal(picoev_loop* loop, int max_wait);
   
   /* updates timeout */
   PICOEV_INLINE
@@ -152,8 +152,8 @@ extern "C" {
   
   /* registers a file descriptor and callback argument to a event loop */
   PICOEV_INLINE
-  void picoev_add(picoev_loop* loop, int fd, int events, int timeout_in_secs,
-		  picoev_handler* callback, void* cb_arg) {
+  int picoev_add(picoev_loop* loop, int fd, int events, int timeout_in_secs,
+		 picoev_handler* callback, void* cb_arg) {
     picoev_fd* target;
     assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
     target = picoev.fds + fd;
@@ -163,21 +163,28 @@ extern "C" {
     target->loop_id = loop->loop_id;
     target->events = 0;
     target->timeout_idx = -1;
-    picoev_update_events_internal(loop, fd, events);
+    if (picoev_update_events_internal(loop, fd, events) != 0) {
+      target->loop_id = 0;
+      return -1;
+    }
     picoev_set_timeout(loop, fd, timeout_in_secs);
+    return 0;
   }
   
   /* unregisters a file descriptor from event loop */
   PICOEV_INLINE
-  void picoev_del(picoev_loop* loop, int fd) {
+  int picoev_del(picoev_loop* loop, int fd) {
     picoev_fd* target;
     assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
     target = picoev.fds + fd;
     if (target->events != 0) {
-      picoev_update_events_internal(loop, fd, 0);
+      if (picoev_update_events_internal(loop, fd, 0) != 0) {
+	return -1;
+      }
     }
     picoev_set_timeout(loop, fd, 0);
     target->loop_id = 0;
+    return 0;
   }
   
   /* returns events being watched for given descriptor */
@@ -189,37 +196,43 @@ extern "C" {
   
   /* sets events to be watched for given desriptor */
   PICOEV_INLINE
-  void picoev_set_events(picoev_loop* loop, int fd, int events) {
+  int picoev_set_events(picoev_loop* loop, int fd, int events) {
     assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
     if (picoev.fds[fd].events != events) {
-      picoev_update_events_internal(loop, fd, events);
+      if (picoev_update_events_internal(loop, fd, events) != 0) {
+	return -1;
+      }
     }
+    return 0;
   }
   
   /* internal function */
   PICOEV_INLINE
-  void picoev_init_loop_internal(picoev_loop* loop, int max_timeout) {
+  int picoev_init_loop_internal(picoev_loop* loop, int max_timeout) {
     loop->loop_id = ++picoev.num_loops;
     assert(PICOEV_TOO_MANY_LOOPS);
     /* TODO uses valloc to align memory, for future optimisation using SIMD */
-    loop->timeout.vec = (long*)valloc(picoev.timeout_vec_size * sizeof(long)
-		      * PICOEV_TIMEOUT_VEC_SIZE);
-    assert(PICOEV_NO_MEMORY(loop->timeout.vec));
+    if ((loop->timeout.vec
+	 = (long*)valloc((picoev.timeout_vec_size
+			  + picoev.timeout_vec_of_vec_size)
+			 * sizeof(long) * PICOEV_TIMEOUT_VEC_SIZE))
+	== NULL) {
+      --picoev.num_loops;
+      return -1;
+    }
     loop->timeout.vec_of_vec
-      = (long*)valloc(picoev.timeout_vec_of_vec_size * sizeof(long)
-		      * PICOEV_TIMEOUT_VEC_SIZE);
-    assert(PICOEV_NO_MEMORY(loop->timeout.vec_of_vec));
+      = loop->timeout.vec + picoev.timeout_vec_size * PICOEV_TIMEOUT_VEC_SIZE;
     loop->timeout.base_idx = 0;
     loop->timeout.base_time = time(NULL);
     loop->timeout.resolution
       = PICOEV_RND_UP(max_timeout, PICOEV_TIMEOUT_VEC_SIZE)
       / PICOEV_TIMEOUT_VEC_SIZE;
+    return 0;
   }
   
   /* internal function */
   PICOEV_INLINE
   void picoev_deinit_loop_internal(picoev_loop* loop) {
-    free(loop->timeout.vec_of_vec);
     free(loop->timeout.vec);
   }
   
@@ -262,10 +275,13 @@ extern "C" {
   
   /* loop once */
   PICOEV_INLINE
-  void picoev_loop_once(picoev_loop* loop, int max_wait) {
+  int picoev_loop_once(picoev_loop* loop, int max_wait) {
     loop->now = time(NULL);
-    picoev_poll_once_internal(loop, max_wait);
+    if (picoev_poll_once_internal(loop, max_wait) != 0) {
+      return -1;
+    }
     picoev_handle_timeout_internal(loop);
+    return 0;
   }
   
 #undef PICOEV_INLINE
