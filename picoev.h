@@ -187,6 +187,15 @@ extern "C" {
     return 0;
   }
   
+  /* check if fd is registered (checks all loops if loop == NULL) */
+  PICOEV_INLINE
+  int picoev_is_active(picoev_loop* loop, int fd) {
+    assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
+    return loop != NULL
+      ? picoev.fds[fd].loop_id == loop->loop_id
+      : picoev.fds[fd].loop_id != 0;
+  }
+  
   /* returns events being watched for given descriptor */
   PICOEV_INLINE
   int picoev_get_events(picoev_loop* loop __attribute__((unused)), int fd) {
@@ -239,7 +248,6 @@ extern "C" {
   PICOEV_INLINE
   void picoev_handle_timeout_internal(picoev_loop* loop) {
     size_t i, j, k;
-    loop->now = time(NULL);
     for (;
 	 loop->timeout.base_time <= loop->now - loop->timeout.resolution; 
 	 loop->timeout.base_idx
@@ -276,8 +284,14 @@ extern "C" {
   PICOEV_INLINE
   int picoev_loop_once(picoev_loop* loop, int max_wait) {
     loop->now = time(NULL);
+    if (max_wait > loop->timeout.resolution) {
+      max_wait = loop->timeout.resolution;
+    }
     if (picoev_poll_once_internal(loop, max_wait) != 0) {
       return -1;
+    }
+    if (max_wait != 0) {
+      loop->now = time(NULL);
     }
     picoev_handle_timeout_internal(loop);
     return 0;

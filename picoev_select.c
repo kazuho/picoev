@@ -61,10 +61,7 @@ int picoev_poll_once_internal(picoev_loop* loop, int max_wait)
   }
   
   /* select and handle if any */
-  tv.tv_sec = loop->timeout.resolution;
-  if (max_wait != 0 && max_wait < tv.tv_sec) {
-    tv.tv_sec = max_wait;
-  }
+  tv.tv_sec = max_wait;
   tv.tv_usec = 0;
   r = select(maxfd + 1, &readfds, &writefds, &errorfds, &tv);
   if (r == -1) {

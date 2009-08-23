@@ -81,15 +81,11 @@ int picoev_destroy_loop(picoev_loop* _loop)
 int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
 {
   picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
-  int i, nevents, timeout_secs;
+  int i, nevents;
   
-  timeout_secs = loop->loop.timeout.resolution;
-  if (max_wait != 0 && max_wait < timeout_secs) {
-    timeout_secs = max_wait;
-  }
   nevents = epoll_wait(loop->epfd, loop->events,
 		       sizeof(loop->events) / sizeof(loop->events[0]),
-		       timeout_secs * 1000);
+		       max_wait * 1000);
   if (nevents == -1) {
     return -1;
   }

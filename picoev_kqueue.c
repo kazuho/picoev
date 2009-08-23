@@ -30,7 +30,7 @@ int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
 	 cmd, 0, 0, NULL)
   
   if (picoev.fds[fd].events != 0) {
-    SET(picoev.fds[fd].events, EV_DISABLE);
+    SET(picoev.fds[fd].events, EV_ADD | EV_ENABLE);
   }
   if (events != 0) {
     SET(events, EV_ADD);
@@ -92,12 +92,8 @@ int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
   struct timespec ts;
   int nevents, i;
   
-  ts.tv_sec = loop->loop.timeout.resolution;
-  if (max_wait != 0 && max_wait < ts.tv_sec) {
-    ts.tv_sec = max_wait;
-  }
+  ts.tv_sec = max_wait;
   ts.tv_nsec = 0;
-  
   nevents = kevent(loop->kq, loop->ev_queue, loop->ev_queue_off, loop->events,
 		   sizeof(loop->events) / sizeof(loop->events[0]), &ts);
   if (nevents == -1) {
