@@ -8,10 +8,13 @@ void picoev_update_events_internal(picoev_loop* loop, int fd, int events)
   picoev.fds[fd].events = events;
 }
 
-void picoev_loop_once(picoev_loop* loop)
+void picoev_loop_once(picoev_loop* loop, int max_wait)
 {
   fd_set readfds, writefds, errorfds;
+  struct timeval tv;
   int i, maxfd = 0;
+  
+  loop->now = time(NULL);
   
   /* setup */
   FD_ZERO(&readfds);
@@ -35,10 +38,13 @@ void picoev_loop_once(picoev_loop* loop)
     }
   }
   
-  if (maxfd != 0
-      && select(maxfd + 1, &readfds, &writefds, &errorfds, NULL) > 0) {
-    
-    /* handle */
+  /* select and handle if any */
+  tv.tv_sec = loop->timeout.resolution;
+  if (max_wait != 0 && max_wait < tv.tv_sec) {
+    tv.tv_sec = max_wait;
+  }
+  tv.tv_usec = 0;
+  if (select(maxfd + 1, &readfds, &writefds, &errorfds, &tv) > 0) {
     for (i = 0; i < picoev.max_fd; ++i) {
       picoev_fd* fd = picoev.fds + i;
       if (fd->loop_id == loop->loop_id) {
@@ -49,8 +55,8 @@ void picoev_loop_once(picoev_loop* loop)
 	}
       }
     }
-    
   }
   
-  // TODO handle timeout
+  /* handle timeout */
+  picoev_handle_timeout_internal(loop);
 }
