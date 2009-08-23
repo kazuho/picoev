@@ -15,7 +15,8 @@ extern "C" {
 #include <time.h>
 
 #define PICOEV_IS_INITED (picoev.max_fd != 0)  
-#define PICOEV_IS_INITED_AND_FD_IN_RANGE(fd) ((fd) < picoev.max_fd)
+#define PICOEV_IS_INITED_AND_FD_IN_RANGE(fd) \
+  (((unsigned)fd) < (unsigned)picoev.max_fd)
 #define PICOEV_TOO_MANY_LOOPS (picoev.num_loops != 0) /* use after ++ */
 #define PICOEV_FD_BELONGS_TO_LOOP(loop, fd) \
   ((loop)->loop_id == picoev.fds[fd].loop_id)
