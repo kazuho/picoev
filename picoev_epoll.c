@@ -5,6 +5,7 @@
 typedef struct picoev_loop_epoll_st {
   picoev_loop loop;
   int epfd;
+  struct epoll_event events[1024];
 } picoev_loop_epoll;
 
 picoev_globals picoev;
@@ -69,22 +70,23 @@ void picoev_destroy_loop(picoev_loop* _loop)
 void picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
 {
   picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
-  struct epoll_event events[100];
   int i, nevents, timeout_secs;
   
   timeout_secs = loop->loop.timeout.resolution;
   if (max_wait != 0 && max_wait < timeout_secs) {
     timeout_secs = max_wait;
   }
-  nevents = epoll_wait(loop->epfd, events, sizeof(events) / sizeof(events[0]),
+  nevents = epoll_wait(loop->epfd, loop->events,
+		       sizeof(loop->events) / sizeof(loop->events[0]),
 		       timeout_secs * 1000);
   for (i = 0; i < nevents; ++i) {
-    picoev_fd* target = picoev.fds + events[i].data.fd;
+    struct epoll_event* event = loop->events + i;
+    picoev_fd* target = picoev.fds + event->data.fd;
     if (loop->loop.loop_id == target->loop_id
-	&& (events[i].events & (EPOLLIN | EPOLLOUT)) != 0) {
-      int revents = ((events[i].events & EPOLLIN) != 0 ? PICOEV_READ : 0)
-	| ((events[i].events & EPOLLOUT) != 0 ? PICOEV_WRITE : 0);
-      (*target->callback)(&loop->loop, events[i].data.fd, revents,
+	&& (event->events & (EPOLLIN | EPOLLOUT)) != 0) {
+      int revents = ((event->events & EPOLLIN) != 0 ? PICOEV_READ : 0)
+	| ((event->events & EPOLLOUT) != 0 ? PICOEV_WRITE : 0);
+      (*target->callback)(&loop->loop, event->data.fd, revents,
 			  target->cb_arg);
     }
   }
