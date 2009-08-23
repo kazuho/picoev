@@ -96,6 +96,7 @@ int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
   ts.tv_nsec = 0;
   nevents = kevent(loop->kq, loop->ev_queue, loop->ev_queue_off, loop->events,
 		   sizeof(loop->events) / sizeof(loop->events[0]), &ts);
+  loop->ev_queue_off = 0;
   if (nevents == -1) {
     /* the errors we can only rescue */
     assert(errno == EACCES || errno == EFAULT || errno == EINTR);
