@@ -65,7 +65,7 @@ extern "C" {
 #define PICOEV_WRITE 2
 #define PICOEV_TIMEOUT 4
   
-  typedef unsigned int picoev_loop_id_t;
+  typedef unsigned short picoev_loop_id_t;
   
   typedef struct picoev_loop_st picoev_loop;
   
@@ -74,12 +74,13 @@ extern "C" {
   
   typedef struct picoev_fd_st {
     /* use accessors! */
-    /* should keep the size to 16 bytes on 32-bit arch, 32 bytes on 64-bit */
+    /* TODO adjust the size to match that of a cache line */
     picoev_handler* callback;
     void* cb_arg;
     picoev_loop_id_t loop_id;
-    short events;
-    short timeout_idx; /* -1 if not used, otherwise index of timeout_vec */
+    char events;
+    unsigned char timeout_idx; /* -1 if not used */
+    int __link_fd;
   } picoev_fd;
   
   struct picoev_loop_st {
