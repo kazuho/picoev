@@ -82,7 +82,7 @@ extern "C" {
     picoev_loop_id_t loop_id;
     char events;
     unsigned char timeout_idx; /* PICOEV_TIMEOUT_IDX_UNUSED if not used */
-    int _backend; /* can be used by the backend (inited to zero) */
+    int _backend; /* can be used by the backend (inited to -1) */
   } picoev_fd;
   
   struct picoev_loop_st {
@@ -214,8 +214,9 @@ extern "C" {
     target->loop_id = loop->loop_id;
     target->events = 0;
     target->timeout_idx = PICOEV_TIMEOUT_IDX_UNUSED;
-    target->_backend = 0;
-    if (events != 0 && picoev_update_events_internal(loop, fd, events) != 0) {
+    target->_backend = -1;
+    if (events != 0
+	&& picoev_update_events_internal(loop, fd, events) != 0) {
       target->loop_id = 0;
       return -1;
     }

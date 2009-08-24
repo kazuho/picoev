@@ -116,7 +116,7 @@ int main(void)
   picoev_add(loop, listen_sock, PICOEV_READ, 0, accept_callback, NULL);
   /* loop */
   while (1) {
-    picoev_loop_once(loop, 0);
+    picoev_loop_once(loop, 10);
   }
   /* cleanup */
   picoev_destroy_loop(loop);
