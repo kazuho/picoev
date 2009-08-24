@@ -65,6 +65,8 @@ extern "C" {
 #define PICOEV_WRITE 2
 #define PICOEV_TIMEOUT 4
   
+#define PICOEV_TIMEOUT_IDX_UNUSED (UCHAR_MAX)
+  
   typedef unsigned short picoev_loop_id_t;
   
   typedef struct picoev_loop_st picoev_loop;
@@ -79,8 +81,8 @@ extern "C" {
     void* cb_arg;
     picoev_loop_id_t loop_id;
     char events;
-    unsigned char timeout_idx; /* -1 if not used */
-    int __link_fd;
+    unsigned char timeout_idx; /* PICOEV_TIMEOUT_IDX_UNUSED if not used */
+    int _backend; /* can be used by the backend (inited to zero) */
   } picoev_fd;
   
   struct picoev_loop_st {
@@ -173,7 +175,7 @@ extern "C" {
     assert(PICOEV_FD_BELONGS_TO_LOOP(loop, fd));
     target = picoev.fds + fd;
     /* clear timeout */
-    if (target->timeout_idx != -1) {
+    if (target->timeout_idx != PICOEV_TIMEOUT_IDX_UNUSED) {
       vec = PICOEV_TIMEOUT_VEC_OF(loop, target->timeout_idx);
       if ((vec[vi] &= ~((unsigned short)SHRT_MIN >> (fd % PICOEV_SHORT_BITS)))
 	  == 0) {
@@ -181,7 +183,7 @@ extern "C" {
 	vec_of_vec[vi / PICOEV_SHORT_BITS]
 	  &= ~((unsigned short)SHRT_MIN >> (vi % PICOEV_SHORT_BITS));
       }
-      target->timeout_idx = -1;
+      target->timeout_idx = PICOEV_TIMEOUT_IDX_UNUSED;
     }
     if (secs != 0) {
       delta = (loop->now + secs - loop->timeout.base_time)
@@ -211,7 +213,8 @@ extern "C" {
     target->cb_arg = cb_arg;
     target->loop_id = loop->loop_id;
     target->events = 0;
-    target->timeout_idx = -1;
+    target->timeout_idx = PICOEV_TIMEOUT_IDX_UNUSED;
+    target->_backend = 0;
     if (events != 0 && picoev_update_events_internal(loop, fd, events) != 0) {
       target->loop_id = 0;
       return -1;
@@ -316,6 +319,7 @@ extern "C" {
 		if (v < 0) {
 		  picoev_fd* fd = picoev.fds + k;
 		  assert(fd->loop_id == loop->loop_id);
+		  fd->timeout_idx = PICOEV_TIMEOUT_IDX_UNUSED;
 		  (*fd->callback)(loop, k, PICOEV_TIMEOUT, fd->cb_arg);
 		}
 	      }
