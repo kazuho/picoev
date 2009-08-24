@@ -57,6 +57,7 @@ extern "C" {
   ((loop)->timeout.vec_of_vec + (idx) * picoev.timeout_vec_of_vec_size)
 #define PICOEV_RND_UP(v, d) (((v) + (d) - 1) / (d) * (d))
 
+#define PICOEV_PAGE_SIZE 4096
 #define PICOEV_CACHE_LINE_SIZE 32 /* in bytes, ok if greater than the actual */
 #define PICOEV_SIMD_BITS 128
 #define PICOEV_TIMEOUT_VEC_SIZE 128
@@ -130,16 +131,21 @@ extern "C" {
   /* internal: poll once and call the handlers (defined by each backend) */
   int picoev_poll_once_internal(picoev_loop* loop, int max_wait);
   
-  /* internal, aligned allocator */
+  /* internal, aligned allocator with address scrambling to avoid cache
+     line contention */
   PICOEV_INLINE
-  void* picoev_memalign(size_t sz, void** orig_addr) {
-    sz = sz + PICOEV_CACHE_LINE_SIZE - 1;
+  void* picoev_memalign(size_t sz, void** orig_addr, int clear) {
+    sz = sz + PICOEV_PAGE_SIZE + PICOEV_CACHE_LINE_SIZE;
     if ((*orig_addr = malloc(sz)) == NULL) {
       return NULL;
     }
-    memset(*orig_addr, 0, sz);
+    if (clear != 0) {
+      memset(*orig_addr, 0, sz);
+    }
     return
-      (void*)PICOEV_RND_UP((unsigned long)*orig_addr, PICOEV_CACHE_LINE_SIZE);
+      (void*)PICOEV_RND_UP((unsigned long)*orig_addr
+			   + (rand() % PICOEV_PAGE_SIZE),
+			   PICOEV_CACHE_LINE_SIZE);
   }
   
   /* initializes picoev */
@@ -148,7 +154,7 @@ extern "C" {
     assert(! PICOEV_IS_INITED);
     assert(max_fd > 0);
     if ((picoev.fds = (picoev_fd*)picoev_memalign(sizeof(picoev_fd) * max_fd,
-						  &picoev._fds_free_addr))
+						  &picoev._fds_free_addr, 1))
 	== NULL) {
       return -1;
     }
@@ -292,7 +298,7 @@ extern "C" {
 	 = (short*)picoev_memalign((picoev.timeout_vec_of_vec_size
 				    + picoev.timeout_vec_size)
 				   * sizeof(short) * PICOEV_TIMEOUT_VEC_SIZE,
-				   &loop->timeout._free_addr))
+				   &loop->timeout._free_addr, 1))
 	== NULL) {
       --picoev.num_loops;
       return -1;
