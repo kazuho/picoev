@@ -38,7 +38,7 @@ typedef struct picoev_loop_epoll_st {
   struct epoll_event events[1024];
 } picoev_loop_epoll;
 
-#define BACKEND_GET_NEXT_FD(backend) ((backend) >> 24)
+#define BACKEND_GET_NEXT_FD(backend) ((backend) >> 8)
 #define BACKEND_GET_OLD_EVENTS(backend) ((char)backend)
 #define BACKEND_BUILD(nextfd, oldevents) (((nextfd) << 8) | (oldevents))
 
@@ -55,7 +55,7 @@ __inline void picoev_call_epoll(picoev_loop_epoll* loop, int fd,
   if (loop->loop.loop_id != target->loop_id) {
     /* now used by another thread, disable */
     CALL_EPOLL(loop->epfd, EPOLL_CTL_DEL, fd, 0);
-  } else {
+  } else if (target->_backend != -1) {
     int old_events = BACKEND_GET_OLD_EVENTS(target->_backend);
     if (old_events != target->events) {
       /* apply changes */
@@ -74,27 +74,6 @@ __inline void picoev_call_epoll(picoev_loop_epoll* loop, int fd,
       }
     }
   }
-}
-
-int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
-{
-  picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
-  picoev_fd* target = picoev.fds + fd;
-  
-  assert(PICOEV_FD_BELONGS_TO_LOOP(&loop->loop, fd));
-  
-  if (target->events == events) {
-    return 0;
-  }
-  
-  /* update chain */
-  if (target->_backend == -1) {
-    target->_backend = BACKEND_BUILD(loop->changed_fds, target->events);
-    loop->changed_fds = fd;
-  }
-  target->events = events;
-  
-  return 0;
 }
 
 picoev_loop* picoev_create_loop(int max_timeout)
@@ -131,6 +110,43 @@ int picoev_destroy_loop(picoev_loop* _loop)
   }
   picoev_deinit_loop_internal(&loop->loop);
   free(loop);
+  return 0;
+}
+
+int picoev_init_backend()
+{
+  int i;
+  
+  for (i = 0; i < picoev.max_fd; ++i) {
+    picoev.fds[i]._backend = -1;
+  }
+  
+  return 0;
+}
+
+int picoev_deinit_backend()
+{
+  return 0;
+}
+
+int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
+{
+  picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
+  picoev_fd* target = picoev.fds + fd;
+  
+  assert(PICOEV_FD_BELONGS_TO_LOOP(&loop->loop, fd));
+  
+  if (target->events == events) {
+    return 0;
+  }
+  
+  /* update chain */
+  if (target->_backend == -1) {
+    target->_backend = BACKEND_BUILD(loop->changed_fds, target->events);
+    loop->changed_fds = fd;
+  }
+  target->events = events;
+  
   return 0;
 }
 

@@ -41,6 +41,7 @@ extern "C" {
 #include <assert.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define PICOEV_IS_INITED (picoev.max_fd != 0)  
@@ -82,7 +83,7 @@ extern "C" {
     picoev_loop_id_t loop_id;
     char events;
     unsigned char timeout_idx; /* PICOEV_TIMEOUT_IDX_UNUSED if not used */
-    int _backend; /* can be used by the backend (inited to -1) */
+    int _backend; /* can be used by the backend (never ever touched by core) */
   } picoev_fd;
   
   struct picoev_loop_st {
@@ -111,6 +112,24 @@ extern "C" {
   
   extern picoev_globals picoev;
   
+  /* creates a new event loop (defined by each backend) */
+  picoev_loop* picoev_create_loop(int max_timeout);
+  
+  /* destroys a loop (defined by each backend) */
+  int picoev_destroy_loop(picoev_loop* loop);
+  
+  /* internal: initializes the backend */
+  int picoev_init_backend(void);
+  
+  /* internal: destroys the backend */
+  int picoev_deinit_backend(void);
+  
+  /* internal: updates events to be watched (defined by each backend) */
+  int picoev_update_events_internal(picoev_loop* loop, int fd, int events);
+  
+  /* internal: poll once and call the handlers (defined by each backend) */
+  int picoev_poll_once_internal(picoev_loop* loop, int max_wait);
+  
   /* internal, aligned allocator */
   PICOEV_INLINE
   void* picoev_memalign(size_t sz, void** orig_addr) {
@@ -118,6 +137,7 @@ extern "C" {
     if ((*orig_addr = malloc(sz)) == NULL) {
       return NULL;
     }
+    memset(*orig_addr, 0, sz);
     return
       (void*)PICOEV_RND_UP((unsigned long)*orig_addr, PICOEV_CACHE_LINE_SIZE);
   }
@@ -139,31 +159,29 @@ extern "C" {
     picoev.timeout_vec_of_vec_size
       = PICOEV_RND_UP(picoev.timeout_vec_size, PICOEV_SIMD_BITS)
       / PICOEV_SHORT_BITS;
+    if (picoev_init_backend() != 0) {
+      free(picoev.fds);
+      picoev.fds = NULL;
+      picoev.max_fd = 0;
+      return -1;
+    }
     return 0;
   }
   
   /* deinitializes picoev */
   PICOEV_INLINE
-  void picoev_deinit(void) {
+  int picoev_deinit(void) {
     assert(PICOEV_IS_INITED);
+    if (picoev_deinit_backend() != 0) {
+      return -1;
+    }
     free(picoev._fds_free_addr);
     picoev.fds = NULL;
     picoev._fds_free_addr = NULL;
     picoev.max_fd = 0;
     picoev.num_loops = 0;
+    return 0;
   }
-  
-  /* creates a new event loop (defined by each backend) */
-  picoev_loop* picoev_create_loop(int max_timeout);
-  
-  /* destroys a loop (defined by each backend) */
-  int picoev_destroy_loop(picoev_loop* loop);
-  
-  /* internal: updates events to be watched (defined by each backend) */
-  int picoev_update_events_internal(picoev_loop* loop, int fd, int events);
-  
-  /* internal: poll once and call the handlers (defined by each backend) */
-  int picoev_poll_once_internal(picoev_loop* loop, int max_wait);
   
   /* updates timeout */
   PICOEV_INLINE
@@ -214,7 +232,6 @@ extern "C" {
     target->loop_id = loop->loop_id;
     target->events = 0;
     target->timeout_idx = PICOEV_TIMEOUT_IDX_UNUSED;
-    target->_backend = -1;
     if (events != 0
 	&& picoev_update_events_internal(loop, fd, events) != 0) {
       target->loop_id = 0;
