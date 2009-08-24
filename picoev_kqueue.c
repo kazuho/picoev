@@ -46,38 +46,6 @@ typedef struct picoev_loop_kqueue_st {
 
 picoev_globals picoev;
 
-int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
-{
-  picoev_loop_kqueue* loop = (picoev_loop_kqueue*)_loop;
-  
-  assert(PICOEV_FD_BELONGS_TO_LOOP(&loop->loop, fd));
-  
-#define SET(ev, cmd)					  \
-  EV_SET(loop->ev_queue + loop->ev_queue_off++, fd,	  \
-	 ((ev & PICOEV_READ) != 0 ? EVFILT_READ : 0)	  \
-	 | ((ev & PICOEV_WRITE) != 0 ? EVFILT_WRITE : 0), \
-	 cmd, 0, 0, NULL)
-  
-  if (picoev.fds[fd].events != 0) {
-    SET(picoev.fds[fd].events, EV_ADD | EV_ENABLE);
-  }
-  if (events != 0) {
-    SET(events, EV_ADD);
-  }
-  
-#undef SET 
-  
-  /* should call imediately if the user might be going to close the socket */
-  if (events == 0 || loop->ev_queue_off + 2 >= EV_QUEUE_SZ) {
-    int r = kevent(loop->kq, loop->ev_queue, loop->ev_queue_off, NULL, 0, NULL);
-    assert(r == 0);
-    loop->ev_queue_off = 0;
-  }
-  
-  picoev.fds[fd].events = events;
-  return 0;
-}
-
 picoev_loop* picoev_create_loop(int max_timeout)
 {
   picoev_loop_kqueue* loop;
@@ -112,6 +80,48 @@ int picoev_destroy_loop(picoev_loop* _loop)
   }
   picoev_deinit_loop_internal(&loop->loop);
   free(loop);
+  return 0;
+}
+
+int picoev_init_backend()
+{
+  return 0;
+}
+
+int picoev_deinit_backend()
+{
+  return 0;
+}
+
+int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
+{
+  picoev_loop_kqueue* loop = (picoev_loop_kqueue*)_loop;
+  
+  assert(PICOEV_FD_BELONGS_TO_LOOP(&loop->loop, fd));
+  
+#define SET(ev, cmd)					  \
+  EV_SET(loop->ev_queue + loop->ev_queue_off++, fd,	  \
+	 ((ev & PICOEV_READ) != 0 ? EVFILT_READ : 0)	  \
+	 | ((ev & PICOEV_WRITE) != 0 ? EVFILT_WRITE : 0), \
+	 cmd, 0, 0, NULL)
+  
+  if (picoev.fds[fd].events != 0) {
+    SET(picoev.fds[fd].events, EV_ADD | EV_ENABLE);
+  }
+  if (events != 0) {
+    SET(events, EV_ADD);
+  }
+  
+#undef SET 
+  
+  /* should call imediately if the user might be going to close the socket */
+  if (events == 0 || loop->ev_queue_off + 2 >= EV_QUEUE_SZ) {
+    int r = kevent(loop->kq, loop->ev_queue, loop->ev_queue_off, NULL, 0, NULL);
+    assert(r == 0);
+    loop->ev_queue_off = 0;
+  }
+  
+  picoev.fds[fd].events = events;
   return 0;
 }
 
