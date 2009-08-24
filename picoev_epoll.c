@@ -42,11 +42,6 @@ typedef struct picoev_loop_epoll_st {
 #define BACKEND_GET_OLD_EVENTS(backend) ((char)backend)
 #define BACKEND_BUILD(nextfd, oldevents) (((nextfd) << 8) | (oldevents))
 
-#define CALL_EPOLL(epfd, m, fd, e) {		   \
-    int _epoll_ret = epoll_ctl(epfd, m, fd, e);	   \
-    assert(m == EPOLL_CTL_DEL || _epoll_ret == 0); \
-  }
-  
 picoev_globals picoev;
 
 __inline void picoev_call_epoll(picoev_loop_epoll* loop, int fd,
@@ -54,23 +49,22 @@ __inline void picoev_call_epoll(picoev_loop_epoll* loop, int fd,
 {
   if (loop->loop.loop_id != target->loop_id) {
     /* now used by another thread, disable */
-    CALL_EPOLL(loop->epfd, EPOLL_CTL_DEL, fd, 0);
+    epoll_ctl(loop->epfd, EPOLL_CTL_DEL, fd, 0);
   } else if (target->_backend != -1) {
+    /* apply changes even if the old and new flags are equivalent, if the
+       socket was reopened, it might require re-assigning */
     int old_events = BACKEND_GET_OLD_EVENTS(target->_backend);
-    if (old_events != target->events) {
-      /* apply changes */
-      if (target->events == 0) {
-	CALL_EPOLL(loop->epfd, EPOLL_CTL_DEL, fd, 0);
-      } else {
-	struct epoll_event ev;
-	ev.events = ((target->events & PICOEV_READ) != 0 ? EPOLLIN : 0)
-	  | ((target->events & PICOEV_WRITE) != 0 ? EPOLLOUT : 0);
-	ev.data.fd = fd;
-	if (old_events != 0) {
-	  CALL_EPOLL(loop->epfd, EPOLL_CTL_MOD, fd, &ev);
-	} else {
-	  CALL_EPOLL(loop->epfd, EPOLL_CTL_ADD, fd, &ev);
-	}
+    if (target->events == 0) {
+      epoll_ctl(loop->epfd, EPOLL_CTL_DEL, fd, 0);
+    } else {
+      struct epoll_event ev;
+      ev.events = ((target->events & PICOEV_READ) != 0 ? EPOLLIN : 0)
+	| ((target->events & PICOEV_WRITE) != 0 ? EPOLLOUT : 0);
+      ev.data.fd = fd;
+      if (old_events == 0
+	  || epoll_ctl(loop->epfd, EPOLL_CTL_MOD, fd, &ev) != 0) {
+	int r = epoll_ctl(loop->epfd, EPOLL_CTL_ADD, fd, &ev);
+	assert(r == 0);
       }
     }
   }
