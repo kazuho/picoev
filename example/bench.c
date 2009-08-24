@@ -62,7 +62,8 @@
 #if PICOEV
 # include "picoev.h"
 picoev_loop* pe_loop;
-#elif NATIVE
+#endif
+#if NATIVE
 # include "ev.h"
 #endif
 #include <event.h>
