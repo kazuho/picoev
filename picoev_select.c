@@ -32,12 +32,6 @@
 
 picoev_globals picoev;
 
-int picoev_update_events_internal(picoev_loop* loop, int fd, int events)
-{
-  picoev.fds[fd].events = events;
-  return 0;
-}
-
 picoev_loop* picoev_create_loop(int max_timeout)
 {
   picoev_loop* loop;
@@ -58,6 +52,22 @@ int picoev_destroy_loop(picoev_loop* loop)
 {
   picoev_deinit_loop_internal(loop);
   free(loop);
+  return 0;
+}
+
+int picoev_init_backend()
+{
+  return 0;
+}
+
+int picoev_deinit_backend()
+{
+  return 0;
+}
+
+int picoev_update_events_internal(picoev_loop* loop, int fd, int events)
+{
+  picoev.fds[fd].events = events;
   return 0;
 }
 
