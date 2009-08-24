@@ -56,6 +56,7 @@ extern "C" {
   ((loop)->timeout.vec_of_vec + (idx) * picoev.timeout_vec_of_vec_size)
 #define PICOEV_RND_UP(v, d) (((v) + (d) - 1) / (d) * (d))
 
+#define PICOEV_CACHE_LINE_SIZE 32 /* in bytes, ok if greater than the actual */
 #define PICOEV_SIMD_BITS 128
 #define PICOEV_TIMEOUT_VEC_SIZE 128
 #define PICOEV_SHORT_BITS (sizeof(short) * 8)
@@ -90,6 +91,7 @@ extern "C" {
       size_t base_idx;
       time_t base_time;
       int resolution;
+      void* _free_addr;
     } timeout;
     time_t now;
   };
@@ -97,6 +99,7 @@ extern "C" {
   typedef struct picoev_globals_st {
     /* read only */
     picoev_fd* fds;
+    void* _fds_free_addr;
     int max_fd;
     int num_loops;
     size_t timeout_vec_size; /* # of elements in picoev_loop.timeout.vec[0] */
@@ -105,12 +108,25 @@ extern "C" {
   
   extern picoev_globals picoev;
   
+  /* internal, aligned allocator */
+  PICOEV_INLINE
+  void* picoev_memalign(size_t sz, void** orig_addr) {
+    sz = sz + PICOEV_CACHE_LINE_SIZE - 1;
+    if ((*orig_addr = malloc(sz)) == NULL) {
+      return NULL;
+    }
+    return
+      (void*)PICOEV_RND_UP((unsigned long)*orig_addr, PICOEV_CACHE_LINE_SIZE);
+  }
+  
   /* initializes picoev */
   PICOEV_INLINE
   int picoev_init(int max_fd) {
     assert(! PICOEV_IS_INITED);
     assert(max_fd > 0);
-    if ((picoev.fds = (picoev_fd*)valloc(sizeof(picoev_fd) * max_fd)) == NULL) {
+    if ((picoev.fds = (picoev_fd*)picoev_memalign(sizeof(picoev_fd) * max_fd,
+						  &picoev._fds_free_addr))
+	== NULL) {
       return -1;
     }
     picoev.max_fd = max_fd;
@@ -127,8 +143,9 @@ extern "C" {
   PICOEV_INLINE
   void picoev_deinit(void) {
     assert(PICOEV_IS_INITED);
-    free(picoev.fds);
+    free(picoev._fds_free_addr);
     picoev.fds = NULL;
+    picoev._fds_free_addr = NULL;
     picoev.max_fd = 0;
     picoev.num_loops = 0;
   }
@@ -249,17 +266,17 @@ extern "C" {
   int picoev_init_loop_internal(picoev_loop* loop, int max_timeout) {
     loop->loop_id = ++picoev.num_loops;
     assert(PICOEV_TOO_MANY_LOOPS);
-    /* TODO uses valloc to align memory, for future optimisation using SIMD */
-    if ((loop->timeout.vec
-	 = (short*)valloc((picoev.timeout_vec_size
-			  + picoev.timeout_vec_of_vec_size)
-			 * sizeof(short) * PICOEV_TIMEOUT_VEC_SIZE))
+    if ((loop->timeout.vec_of_vec
+	 = (short*)picoev_memalign((picoev.timeout_vec_of_vec_size
+				    + picoev.timeout_vec_size)
+				   * sizeof(short) * PICOEV_TIMEOUT_VEC_SIZE,
+				   &loop->timeout._free_addr))
 	== NULL) {
       --picoev.num_loops;
       return -1;
     }
-    loop->timeout.vec_of_vec
-      = loop->timeout.vec + picoev.timeout_vec_size * PICOEV_TIMEOUT_VEC_SIZE;
+    loop->timeout.vec = loop->timeout.vec_of_vec
+      + picoev.timeout_vec_of_vec_size * PICOEV_TIMEOUT_VEC_SIZE;
     loop->timeout.base_idx = 0;
     loop->timeout.base_time = time(NULL);
     loop->timeout.resolution
@@ -271,7 +288,7 @@ extern "C" {
   /* internal function */
   PICOEV_INLINE
   void picoev_deinit_loop_internal(picoev_loop* loop) {
-    free(loop->timeout.vec);
+    free(loop->timeout._free_addr);
   }
   
   /* internal function */
