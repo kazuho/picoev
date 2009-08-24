@@ -29,7 +29,9 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -41,6 +43,16 @@
 #define PORT 23456
 #define MAX_FDS 1024
 #define TIMEOUT_SECS 10
+
+static void setup_sock(int fd)
+{
+  int on = 1, r;
+
+  r = setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
+  assert(r == 0);
+  r = fcntl(fd, F_SETFL, O_NONBLOCK);
+  assert(r == 0);
+}
 
 static void close_conn(picoev_loop* loop, int fd)
 {
@@ -89,6 +101,7 @@ static void accept_callback(picoev_loop* loop, int fd, int events, void* cb_arg)
   int newfd = accept(fd, NULL, NULL);
   if (newfd != -1) {
     printf("connected: %d\n", newfd);
+    setup_sock(newfd);
     picoev_add(loop, newfd, PICOEV_READ, TIMEOUT_SECS, rw_callback, NULL);
   }
 }
@@ -110,6 +123,7 @@ int main(void)
   assert(bind(listen_sock, (struct sockaddr*)&listen_addr, sizeof(listen_addr))
 	 == 0);
   assert(listen(listen_sock, 5) == 0);
+  setup_sock(listen_sock);
   
   /* init picoev */
   picoev_init(MAX_FDS);
