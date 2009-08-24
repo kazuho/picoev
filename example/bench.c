@@ -216,7 +216,7 @@ run_once(void)
 	} while (count != fired);
 	gettimeofday(&te, NULL);
 
-	//if (xcount != count) fprintf(stderr, "Xcount: %d, Rcount: %d\n", xcount, count);
+	if (xcount != count) fprintf(stderr, "Xcount: %d, Rcount: %d\n", xcount, count);
 	}
 
 	timersub(&te, &ta, &ta);

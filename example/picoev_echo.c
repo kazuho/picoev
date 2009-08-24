@@ -30,6 +30,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <stdio.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/uio.h>
@@ -45,6 +46,7 @@ static void close_conn(picoev_loop* loop, int fd)
 {
   picoev_del(loop, fd);
   close(fd);
+  printf("closed: %d\n", fd);
 }
 
 static void rw_callback(picoev_loop* loop, int fd, int events, void* cb_arg)
@@ -86,6 +88,7 @@ static void accept_callback(picoev_loop* loop, int fd, int events, void* cb_arg)
 {
   int newfd = accept(fd, NULL, NULL);
   if (newfd != -1) {
+    printf("connected: %d\n", newfd);
     picoev_add(loop, newfd, PICOEV_READ, TIMEOUT_SECS, rw_callback, NULL);
   }
 }
@@ -116,6 +119,7 @@ int main(void)
   picoev_add(loop, listen_sock, PICOEV_READ, 0, accept_callback, NULL);
   /* loop */
   while (1) {
+    fputc('.', stdout); fflush(stdout);
     picoev_loop_once(loop, 10);
   }
   /* cleanup */
