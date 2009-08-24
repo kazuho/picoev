@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <errno.h>
 #include <sys/epoll.h>
 #include <unistd.h>
 #include "picoev.h"
@@ -54,17 +55,26 @@ __inline void picoev_call_epoll(picoev_loop_epoll* loop, int fd,
     /* apply changes even if the old and new flags are equivalent, if the
        socket was reopened, it might require re-assigning */
     int old_events = BACKEND_GET_OLD_EVENTS(target->_backend);
-    if (target->events == 0) {
+    if (old_events != 0 && target->events == 0) {
       epoll_ctl(loop->epfd, EPOLL_CTL_DEL, fd, 0);
     } else {
       struct epoll_event ev;
+      int r;
       ev.events = ((target->events & PICOEV_READ) != 0 ? EPOLLIN : 0)
 	| ((target->events & PICOEV_WRITE) != 0 ? EPOLLOUT : 0);
       ev.data.fd = fd;
-      if (old_events == 0
-	  || epoll_ctl(loop->epfd, EPOLL_CTL_MOD, fd, &ev) != 0) {
-	int r = epoll_ctl(loop->epfd, EPOLL_CTL_ADD, fd, &ev);
-	assert(r == 0);
+      if (old_events != 0) {
+	if (epoll_ctl(loop->epfd, EPOLL_CTL_MOD, fd, &ev) != 0) {
+	  assert(errno == ENOENT);
+	  r = epoll_ctl(loop->epfd, EPOLL_CTL_ADD, fd, &ev);
+	  assert(r == 0);
+	}
+      } else {
+	if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, fd, &ev) != 0) {
+	  assert(errno == EEXIST);
+	  r = epoll_ctl(loop->epfd, EPOLL_CTL_MOD, fd, &ev);
+	  assert(r == 0);
+	}
       }
     }
   }
@@ -176,7 +186,7 @@ int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
       (*target->callback)(&loop->loop, event->data.fd, revents,
 			  target->cb_arg);
     } else {
-      CALL_EPOLL(loop->epfd, EPOLL_CTL_DEL, event->data.fd, 0);
+      epoll_ctl(loop->epfd, EPOLL_CTL_DEL, event->data.fd, 0);
     }
   }
   return 0;
