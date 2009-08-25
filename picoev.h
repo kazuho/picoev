@@ -279,7 +279,9 @@ extern "C" {
      to -1 and call the function until -1 is returned */
   PICOEV_INLINE
   int picoev_next_fd(picoev_loop* loop, int curfd) {
-    assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(curfd));
+    if (curfd != -1) {
+      assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(curfd));
+    }
     while (++curfd < picoev.max_fd) {
       if (loop->loop_id == picoev.fds[curfd].loop_id) {
 	return curfd;
