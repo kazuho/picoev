@@ -275,6 +275,19 @@ extern "C" {
     return 0;
   }
   
+  /* function to iterate registered information. To start iteration, set curfd
+     to -1 and call the function until -1 is returned */
+  PICOEV_INLINE
+  int picoev_next_fd(picoev_loop* loop, int curfd) {
+    assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(curfd));
+    while (++curfd < picoev.max_fd) {
+      if (loop->loop_id == picoev.fds[curfd].loop_id) {
+	return curfd;
+      }
+    }
+    return -1;
+  }
+  
   /* internal function */
   PICOEV_INLINE
   int picoev_init_loop_internal(picoev_loop* loop, int max_timeout) {
