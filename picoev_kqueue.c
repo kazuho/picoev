@@ -71,7 +71,7 @@ static int apply_pending_changes(picoev_loop_kqueue* loop, int apply_all)
       if (changed->events != 0) {
 	SET(EV_ADD | EV_ENABLE, changed->events);
       }
-      if (cl_off + 1
+      if ((size_t)cl_off + 1
 	  >= sizeof(loop->changelist) / sizeof(loop->changelist[0])) {
 	nevents = kevent(loop->kq, loop->changelist, cl_off, NULL, 0, NULL);
 	assert(nevents == 0);
