@@ -36,19 +36,62 @@
 
 #define EV_QUEUE_SZ 128
 
-#define BACKEND_BUILD(next_fd, ignore) \
-  ((unsigned)((next_fd << 1) | (! ! (ignore))))
-#define BACKEND_GET_NEXT_FD(backend) ((int)(backend) >> 1)
-#define BACKEND_IGNORE(backend) (((backend) & 1) != 0)
+#define BACKEND_BUILD(next_fd, events)	\
+  ((unsigned)((next_fd << 8) | (events & 0xff)))
+#define BACKEND_GET_NEXT_FD(backend) ((int)(backend) >> 8)
+#define BACKEND_GET_OLD_EVENTS(backend) ((int)(backend) & 0xff)
 
 typedef struct picoev_loop_kqueue_st {
   picoev_loop loop;
   int kq;
   int changed_fds; /* link list using picoev_fd::_backend, -1 if not changed */
   struct kevent events[1024];
+  struct kevent changelist[256];
 } picoev_loop_kqueue;
 
 picoev_globals picoev;
+
+static int apply_pending_changes(picoev_loop_kqueue* loop, int apply_all)
+{
+#define SET(op, events)						\
+  EV_SET(loop->changelist + cl_off++, loop->changed_fds,	\
+	 (((events) & PICOEV_READ) != 0 ? EVFILT_READ : 0)	\
+	 | (((events) & PICOEV_WRITE) != 0 ? EVFILT_WRITE : 0), \
+	 (op), 0, 0, NULL)
+  
+  int cl_off = 0, nevents;
+  
+  while (loop->changed_fds != -1) {
+    picoev_fd* changed = picoev.fds + loop->changed_fds;
+    int old_events = BACKEND_GET_OLD_EVENTS(changed->_backend);
+    if (changed->events != old_events) {
+      if (old_events != 0) {
+	SET(EV_DISABLE, old_events);
+      }
+      if (changed->events != 0) {
+	SET(EV_ADD | EV_ENABLE, changed->events);
+      }
+      if (cl_off + 1
+	  >= sizeof(loop->changelist) / sizeof(loop->changelist[0])) {
+	nevents = kevent(loop->kq, loop->changelist, cl_off, NULL, 0, NULL);
+	assert(nevents == 0);
+	cl_off = 0;
+      }
+    }
+    loop->changed_fds = BACKEND_GET_NEXT_FD(changed->_backend);
+    changed->_backend = -1;
+  }
+  
+  if (apply_all && cl_off != 0) {
+    nevents = kevent(loop->kq, loop->changelist, cl_off, NULL, 0, NULL);
+    assert(nevents == 0);
+    cl_off = 0;
+  }
+  
+  return cl_off;
+  
+#undef SET
+}
 
 picoev_loop* picoev_create_loop(int max_timeout)
 {
@@ -95,59 +138,44 @@ int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
   
   assert(PICOEV_FD_BELONGS_TO_LOOP(&loop->loop, fd));
   
-  if (events == PICOEV_DEL) {
-    if (target->_backend != -1) {
-      target->_backend
-	= BACKEND_BUILD(BACKEND_GET_NEXT_FD(target->_backend), 1);
-    }
-    return 0;
-  } else if ((events & PICOEV_ADD) != 0) {
+  /* initialize if adding the fd */
+  if ((events & PICOEV_ADD) != 0) {
     target->_backend = -1;
   }
-  
-  if ((events & PICOEV_READWRITE) == target->events) {
+  /* return if nothing to do */
+  if (events == PICOEV_DEL
+      ? target->_backend == -1
+      : (events & PICOEV_READWRITE) == target->events) {
     return 0;
   }
-  
+  /* add to changed list if not yet being done */
   if (target->_backend == -1) {
-    target->_backend = BACKEND_BUILD(BACKEND_GET_NEXT_FD(target->_backend), 0);
+    target->_backend = BACKEND_BUILD(loop->changed_fds, target->events);
     loop->changed_fds = fd;
   }
-  
+  /* update events */
   target->events = events & PICOEV_READWRITE;
+  /* apply immediately if is a DELETE */
+  if ((events & PICOEV_DEL) != 0) {
+    apply_pending_changes(loop, 1);
+  }
+  
   return 0;
 }
 
 int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
 {
   picoev_loop_kqueue* loop = (picoev_loop_kqueue*)_loop;
-  struct kevent changelist[256];
   struct timespec ts;
   int cl_off = 0, nevents, i;
   
-  /* apply changes */
-  while (loop->changed_fds != -1) {
-    picoev_fd* changed = picoev.fds + loop->changed_fds;
-    if (! BACKEND_IGNORE(changed->_backend)) {
-      int filters = ((changed->events & PICOEV_READ) != 0 ? EVFILT_READ : 0)
-	| ((changed->events & PICOEV_WRITE) != 0 ? EVFILT_WRITE : 0);
-      EV_SET(changelist + cl_off, loop->changed_fds, filters,
-	     filters != 0 ? (EV_ADD | EV_ENABLE) : EV_DISABLE, 0, 0, NULL);
-      if (++cl_off == sizeof(changelist) / sizeof(changelist[0])) {
-	nevents = kevent(loop->kq, changelist, cl_off, NULL, 0, NULL);
-	assert(nevents == 0);
-	cl_off = 0;
-      }
-    }
-    loop->changed_fds = BACKEND_GET_NEXT_FD(changed->_backend);
-    changed->_backend = -1;
-  }
+  /* apply pending changes, with last changes stored to loop->changelist */
+  cl_off = apply_pending_changes(loop, 0);
   
   ts.tv_sec = max_wait;
   ts.tv_nsec = 0;
-  nevents = kevent(loop->kq, changelist, cl_off, loop->events,
+  nevents = kevent(loop->kq, loop->changelist, cl_off, loop->events,
 		   sizeof(loop->events) / sizeof(loop->events[0]), &ts);
-  cl_off = 0;
   if (nevents == -1) {
     /* the errors we can only rescue */
     assert(errno == EACCES || errno == EFAULT || errno == EINTR);
@@ -163,20 +191,7 @@ int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
 	| ((event->flags & EVFILT_WRITE) != 0 ? PICOEV_WRITE : 0);
       (*target->callback)(&loop->loop, event->ident, revents,
 			  target->cb_arg);
-    } else {
-      /* clear no-more-used fds if necessary */
-      EV_SET(changelist + cl_off, event->ident, 0, EV_DELETE, 0, 0, NULL);
-      if (++cl_off == sizeof(changelist) / sizeof(changelist[0])) {
-	nevents = kevent(loop->kq, changelist, cl_off, NULL, 0, NULL);
-	assert(nevents == 0);
-	cl_off = 0;
-      }
     }
-  }
-  /* clear no-more-used fds if necessary */
-  if (cl_off != 0) {
-    nevents = kevent(loop->kq, changelist, cl_off, NULL, 0, NULL);
-    assert(nevents == 0);
   }
   
   return 0;
