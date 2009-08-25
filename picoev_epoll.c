@@ -32,53 +32,17 @@
 #include <unistd.h>
 #include "picoev.h"
 
+#ifndef PICOEV_EPOLL_DEFER_DELETES
+# define PICOEV_EPOLL_DEFER_DELETES 1
+#endif
+
 typedef struct picoev_loop_epoll_st {
   picoev_loop loop;
   int epfd;
-  int changed_fds; /* -1 if none */
   struct epoll_event events[1024];
 } picoev_loop_epoll;
 
-#define BACKEND_GET_NEXT_FD(backend) ((backend) >> 8)
-#define BACKEND_GET_OLD_EVENTS(backend) ((char)backend)
-#define BACKEND_BUILD(nextfd, oldevents) (((nextfd) << 8) | (oldevents))
-
 picoev_globals picoev;
-
-__inline void picoev_call_epoll(picoev_loop_epoll* loop, int fd,
-				picoev_fd* target)
-{
-  if (loop->loop.loop_id != target->loop_id) {
-    /* now used by another thread, disable */
-    epoll_ctl(loop->epfd, EPOLL_CTL_DEL, fd, 0);
-  } else if (target->_backend != -1) {
-    /* apply changes even if the old and new flags are equivalent, if the
-       socket was reopened, it might require re-assigning */
-    int old_events = BACKEND_GET_OLD_EVENTS(target->_backend);
-    if (old_events != 0 && target->events == 0) {
-      epoll_ctl(loop->epfd, EPOLL_CTL_DEL, fd, 0);
-    } else {
-      struct epoll_event ev;
-      int r;
-      ev.events = ((target->events & PICOEV_READ) != 0 ? EPOLLIN : 0)
-	| ((target->events & PICOEV_WRITE) != 0 ? EPOLLOUT : 0);
-      ev.data.fd = fd;
-      if (old_events != 0) {
-	if (epoll_ctl(loop->epfd, EPOLL_CTL_MOD, fd, &ev) != 0) {
-	  assert(errno == ENOENT);
-	  r = epoll_ctl(loop->epfd, EPOLL_CTL_ADD, fd, &ev);
-	  assert(r == 0);
-	}
-      } else {
-	if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, fd, &ev) != 0) {
-	  assert(errno == EEXIST);
-	  r = epoll_ctl(loop->epfd, EPOLL_CTL_MOD, fd, &ev);
-	  assert(r == 0);
-	}
-      }
-    }
-  }
-}
 
 picoev_loop* picoev_create_loop(int max_timeout)
 {
@@ -100,7 +64,6 @@ picoev_loop* picoev_create_loop(int max_timeout)
     free(loop);
     return NULL;
   }
-  loop->changed_fds = -1;
   
   return &loop->loop;
 }
@@ -117,38 +80,54 @@ int picoev_destroy_loop(picoev_loop* _loop)
   return 0;
 }
 
-int picoev_init_backend()
-{
-  int i;
-  
-  for (i = 0; i < picoev.max_fd; ++i) {
-    picoev.fds[i]._backend = -1;
-  }
-  
-  return 0;
-}
-
-int picoev_deinit_backend()
-{
-  return 0;
-}
-
 int picoev_update_events_internal(picoev_loop* _loop, int fd, int events)
 {
   picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
   picoev_fd* target = picoev.fds + fd;
+  struct epoll_event ev;
+  int epoll_ret;
   
   assert(PICOEV_FD_BELONGS_TO_LOOP(&loop->loop, fd));
   
-  if (target->events == events) {
+  if ((events & PICOEV_READWRITE) == target->events) {
     return 0;
   }
   
-  /* update chain */
-  if (target->_backend == -1) {
-    target->_backend = BACKEND_BUILD(loop->changed_fds, target->events);
-    loop->changed_fds = fd;
+  ev.events = ((events & PICOEV_READ) != 0 ? EPOLLIN : 0)
+    | ((events & PICOEV_WRITE) != 0 ? EPOLLOUT : 0);
+  ev.data.fd = fd;
+  
+#define SET(op, check_error) do {		    \
+    epoll_ret = epoll_ctl(loop->epfd, op, fd, &ev); \
+    assert(! check_error || epoll_ret == 0);	    \
+  } while (0)
+  
+#if PICOEV_EPOLL_DEFER_DELETES
+  
+  if ((events & PICOEV_DEL) != 0) {
+    /* nothing to do */
+  } else if ((events & PICOEV_READWRITE) == 0) {
+    SET(EPOLL_CTL_DEL, 1);
+  } else {
+    SET(EPOLL_CTL_MOD, 0);
+    if (epoll_ret != 0) {
+      assert(errno == ENOENT);
+      SET(EPOLL_CTL_ADD, 1);
+    }
   }
+  
+#else
+  
+  if ((events & PICOEV_READWRITE) == 0) {
+    SET(EPOLL_CTL_DEL, 1);
+  } else {
+    SET(target->events == 0 ? EPOLL_CTL_ADD : EPOLL_CTL_MOD, 1);
+  }
+  
+#endif
+  
+#undef SET
+  
   target->events = events;
   
   return 0;
@@ -158,17 +137,6 @@ int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
 {
   picoev_loop_epoll* loop = (picoev_loop_epoll*)_loop;
   int i, nevents;
-  
-  if (loop->changed_fds != -1) {
-    int fd = loop->changed_fds;
-    do {
-      picoev_fd* target = picoev.fds + fd;
-      picoev_call_epoll(loop, fd, target);
-      fd = BACKEND_GET_NEXT_FD(target->_backend);
-      target->_backend = -1;
-    } while (fd != -1);
-    loop->changed_fds = -1;
-  }
   
   nevents = epoll_wait(loop->epfd, loop->events,
 		       sizeof(loop->events) / sizeof(loop->events[0]),
@@ -186,7 +154,10 @@ int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
       (*target->callback)(&loop->loop, event->data.fd, revents,
 			  target->cb_arg);
     } else {
-      epoll_ctl(loop->epfd, EPOLL_CTL_DEL, event->data.fd, 0);
+#if PICOEV_EPOLL_DEFER_DELETES
+      event->events = 0;
+      epoll_ctl(loop->epfd, EPOLL_CTL_DEL, event->data.fd, event);
+#endif
     }
   }
   return 0;

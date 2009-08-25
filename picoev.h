@@ -66,10 +66,13 @@ extern "C" {
 #define PICOEV_READ 1
 #define PICOEV_WRITE 2
 #define PICOEV_TIMEOUT 4
+#define PICOEV_ADD 0x40000000
+#define PICOEV_DEL 0x20000000
+#define PICOEV_READWRITE (PICOEV_READ | PICOEV_WRITE)
   
 #define PICOEV_TIMEOUT_IDX_UNUSED (UCHAR_MAX)
   
-  typedef unsigned short picoev_loop_id_t;
+  typedef unsigned picoev_loop_id_t;
   
   typedef struct picoev_loop_st picoev_loop;
   
@@ -84,7 +87,6 @@ extern "C" {
     picoev_loop_id_t loop_id;
     char events;
     unsigned char timeout_idx; /* PICOEV_TIMEOUT_IDX_UNUSED if not used */
-    int _backend; /* can be used by the backend (never ever touched by core) */
   } picoev_fd;
   
   struct picoev_loop_st {
@@ -118,12 +120,6 @@ extern "C" {
   
   /* destroys a loop (defined by each backend) */
   int picoev_destroy_loop(picoev_loop* loop);
-  
-  /* internal: initializes the backend */
-  int picoev_init_backend(void);
-  
-  /* internal: destroys the backend */
-  int picoev_deinit_backend(void);
   
   /* internal: updates events to be watched (defined by each backend) */
   int picoev_update_events_internal(picoev_loop* loop, int fd, int events);
@@ -165,12 +161,6 @@ extern "C" {
     picoev.timeout_vec_of_vec_size
       = PICOEV_RND_UP(picoev.timeout_vec_size, PICOEV_SIMD_BITS)
       / PICOEV_SHORT_BITS;
-    if (picoev_init_backend() != 0) {
-      free(picoev.fds);
-      picoev.fds = NULL;
-      picoev.max_fd = 0;
-      return -1;
-    }
     return 0;
   }
   
@@ -178,9 +168,6 @@ extern "C" {
   PICOEV_INLINE
   int picoev_deinit(void) {
     assert(PICOEV_IS_INITED);
-    if (picoev_deinit_backend() != 0) {
-      return -1;
-    }
     free(picoev._fds_free_addr);
     picoev.fds = NULL;
     picoev._fds_free_addr = NULL;
@@ -238,8 +225,7 @@ extern "C" {
     target->loop_id = loop->loop_id;
     target->events = 0;
     target->timeout_idx = PICOEV_TIMEOUT_IDX_UNUSED;
-    if (events != 0
-	&& picoev_update_events_internal(loop, fd, events) != 0) {
+    if (picoev_update_events_internal(loop, fd, events | PICOEV_ADD) != 0) {
       target->loop_id = 0;
       return -1;
     }
@@ -253,8 +239,7 @@ extern "C" {
     picoev_fd* target;
     assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
     target = picoev.fds + fd;
-    if (target->events != 0
-	&& picoev_update_events_internal(loop, fd, 0) != 0) {
+    if (picoev_update_events_internal(loop, fd, PICOEV_DEL) != 0) {
       return -1;
     }
     picoev_set_timeout(loop, fd, 0);
@@ -275,7 +260,7 @@ extern "C" {
   PICOEV_INLINE
   int picoev_get_events(picoev_loop* loop __attribute__((unused)), int fd) {
     assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
-    return picoev.fds[fd].events;
+    return picoev.fds[fd].events & PICOEV_READWRITE;
   }
   
   /* sets events to be watched for given desriptor */

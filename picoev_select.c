@@ -55,19 +55,9 @@ int picoev_destroy_loop(picoev_loop* loop)
   return 0;
 }
 
-int picoev_init_backend()
-{
-  return 0;
-}
-
-int picoev_deinit_backend()
-{
-  return 0;
-}
-
 int picoev_update_events_internal(picoev_loop* loop, int fd, int events)
 {
-  picoev.fds[fd].events = events;
+  picoev.fds[fd].events = events & PICOEV_READWRITE;
   return 0;
 }
 
