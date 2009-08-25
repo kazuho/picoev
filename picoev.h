@@ -72,7 +72,7 @@ extern "C" {
   
 #define PICOEV_TIMEOUT_IDX_UNUSED (UCHAR_MAX)
   
-  typedef unsigned picoev_loop_id_t;
+  typedef unsigned short picoev_loop_id_t;
   
   typedef struct picoev_loop_st picoev_loop;
   
@@ -87,6 +87,7 @@ extern "C" {
     picoev_loop_id_t loop_id;
     char events;
     unsigned char timeout_idx; /* PICOEV_TIMEOUT_IDX_UNUSED if not used */
+    int _backend; /* can be used by backends (never modified by core) */
   } picoev_fd;
   
   struct picoev_loop_st {
