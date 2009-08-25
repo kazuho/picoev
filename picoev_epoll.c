@@ -148,11 +148,13 @@ int picoev_poll_once_internal(picoev_loop* _loop, int max_wait)
     struct epoll_event* event = loop->events + i;
     picoev_fd* target = picoev.fds + event->data.fd;
     if (loop->loop.loop_id == target->loop_id
-	&& (event->events & (EPOLLIN | EPOLLOUT)) != 0) {
+	&& (target->events & PICOEV_READWRITE) != 0) {
       int revents = ((event->events & EPOLLIN) != 0 ? PICOEV_READ : 0)
 	| ((event->events & EPOLLOUT) != 0 ? PICOEV_WRITE : 0);
-      (*target->callback)(&loop->loop, event->data.fd, revents,
-			  target->cb_arg);
+      if (revents != 0) {
+	(*target->callback)(&loop->loop, event->data.fd, revents,
+			    target->cb_arg);
+      }
     } else {
 #if PICOEV_EPOLL_DEFER_DELETES
       event->events = 0;
