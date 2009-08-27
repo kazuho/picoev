@@ -99,9 +99,10 @@ static void accept_callback(picoev_loop* loop, int fd, int events, void* cb_arg)
 {
   int newfd = accept(picoev_w32_fd2sock(fd), NULL, NULL);
   if (newfd != -1) {
-    printf("connected: %d\n", newfd);
+    int sock = picoev_w32_sock2fd(newfd);
+    printf("connected: %d\n", sock);
     setup_sock(newfd);
-    picoev_add(loop, picoev_w32_sock2fd(newfd), PICOEV_READ, TIMEOUT_SECS, rw_callback, NULL);
+    picoev_add(loop, sock, PICOEV_READ, TIMEOUT_SECS, rw_callback, NULL);
   }
 }
 
