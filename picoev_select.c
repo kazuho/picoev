@@ -27,8 +27,64 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/select.h>
+#ifndef _WIN32
+# include <sys/select.h>
+#else
+# include <ws2tcpip.h>
+#endif
+
 #include "picoev.h"
+
+#ifdef _WIN32
+# define PICOEV_W32_INTERNAL
+# include "picoev_w32.h"
+# define PICOEV_FD_SET(x, y) FD_SET(picoev_w32_fd2sock(x), y)
+# define PICOEV_FD_ISSET(x, y) FD_ISSET(picoev_w32_fd2sock(x), y)
+
+typedef struct picoev_w32_globals_st {
+  int* fds;
+  void* _fds_free_addr;
+} picoev_w32_globals;
+
+picoev_w32_globals picoev_w32;
+
+int picoev_w32_sock2fd(int sock) {
+  int i;
+  for (i = 0; i < picoev.max_fd && picoev_w32.fds[i]; ++i)
+    if (picoev_w32.fds[i] == sock) return i;
+  assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(i));
+  picoev_w32.fds[i] = sock;
+  return i;
+}
+
+int picoev_w32_fd2sock(int fd) {
+  assert(PICOEV_IS_INITED_AND_FD_IN_RANGE(fd));
+  return picoev_w32.fds[fd];
+}
+
+extern int picoev_w32_deinit(void);
+
+int picoev_w32_init(int max_fd) {
+  int r = picoev_init(max_fd);
+  if ((picoev_w32.fds = (int*)picoev_memalign(sizeof(int) * max_fd,
+						&picoev_w32._fds_free_addr, 1))
+	== NULL) {
+    picoev_deinit();
+    return -1;
+  }
+}
+
+int picoev_w32_deinit(void) {
+  free(picoev_w32._fds_free_addr);
+  picoev_w32.fds = NULL;
+  picoev_w32._fds_free_addr = NULL;
+  return picoev_deinit();
+}
+
+#else
+# define PICOEV_FD_SET(x, y) FD_SET(x, y)
+# define PICOEV_FD_ISSET(x) FD_ISSET(x, y)
+#endif
 
 picoev_globals picoev;
 
@@ -75,13 +131,13 @@ int picoev_poll_once_internal(picoev_loop* loop, int max_wait)
     picoev_fd* fd = picoev.fds + i;
     if (fd->loop_id == loop->loop_id) {
       if ((fd->events & PICOEV_READ) != 0) {
-	FD_SET(i, &readfds);
+	PICOEV_FD_SET(i, &readfds);
 	if (maxfd < i) {
 	  maxfd = i;
 	}
       }
       if ((fd->events & PICOEV_WRITE) != 0) {
-	FD_SET(i, &writefds);
+	PICOEV_FD_SET(i, &writefds);
 	if (maxfd < i) {
 	  maxfd = i;
 	}
@@ -99,8 +155,8 @@ int picoev_poll_once_internal(picoev_loop* loop, int max_wait)
     for (i = 0; i < picoev.max_fd; ++i) {
       picoev_fd* target = picoev.fds + i;
       if (target->loop_id == loop->loop_id) {
-	int revents = (FD_ISSET(i, &readfds) ? PICOEV_READ : 0)
-	  | (FD_ISSET(i, &writefds) ? PICOEV_WRITE : 0);
+	int revents = (PICOEV_FD_ISSET(i, &readfds) ? PICOEV_READ : 0)
+	  | (PICOEV_FD_ISSET(i, &writefds) ? PICOEV_WRITE : 0);
 	if (revents != 0) {
 	  (*target->callback)(loop, i, revents, target->cb_arg);
 	}

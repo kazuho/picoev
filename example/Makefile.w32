@@ -1,0 +1,5 @@
+all : picoev_echo_w32.exe
+	@echo done
+
+picoev_echo_w32.exe : picoev_echo_w32.c
+	g++ -o picoev_echo_w32.exe -I.. picoev_echo_w32.c ../picoev_select.c -lws2_32 
