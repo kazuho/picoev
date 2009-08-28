@@ -83,7 +83,7 @@ int picoev_w32_deinit(void) {
 
 #else
 # define PICOEV_FD_SET(x, y) FD_SET(x, y)
-# define PICOEV_FD_ISSET(x) FD_ISSET(x, y)
+# define PICOEV_FD_ISSET(x, y) FD_ISSET(x, y)
 #endif
 
 picoev_globals picoev;
