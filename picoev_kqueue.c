@@ -116,6 +116,7 @@ picoev_loop* picoev_create_loop(int max_timeout)
   }
   loop->changed_fds = -1;
   
+  loop->loop.now = time(NULL);
   return &loop->loop;
 }
 
